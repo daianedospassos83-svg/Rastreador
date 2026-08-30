@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>PROXIMIDADE</title>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+<style>
+  :root{
+    --void:      #05070a;
+    --panel:     #0b1016;
+    --line:      #182029;
+    --signal:    #39ff88;
+    --signal-dim:#1c6b3f;
+    --danger:    #ff3b5c;
+    --danger-dim:#7a1d2c;
+    --amber:     #ffb454;
+    --ink:       #cfd8de;
+    --ink-dim:   #5c6b76;
+    --mono: 'Space Mono', 'JetBrains Mono', ui-monospace, monospace;
+    --disp: 'Big Shoulders Display', 'Archivo Black', sans-serif;
+  }
+
+  @font-face{
+    font-family:'sysmono';
+    src:local('Menlo');
+  }
+
+  *{ box-sizing:border-box; margin:0; padding:0; }
+
+  html,body{
+    height:100%;
+    background:var(--void);
+    color:var(--ink);
+    font-family:var(--mono);
+    overflow:hidden;
+    -webkit-tap-highlight-color:transparent;
+  }
+
+  #app{
+    position:relative;
+    height:100vh;
+    width:100vw;
+    display:flex;
+    flex-direction:column;
+  }
+
+  /* ---------- scanline / grid atmosphere ---------- */
+  .grid-bg{
+    position:fixed; inset:0;
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 42px 42px;
+    opacity:.35;
+    pointer-events:none;
+    mask-image: radial-gradient(ellipse at center, black 20%, transparent 75%);
+  }
+  .scanline{
+    position:fixed; inset:0;
+    pointer-events:none;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.02) 0px,
+      rgba(255,255,255,0.02) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    opacity:.5;
+  }
+
+  .noise-fade{
+    position:fixed; inset:0;
+    pointer-events:none;
+    background: radial-gradient(ellipse at 50% 0%, rgba(57,255,136,0.05), transparent 55%);
+  }
+
+  /* ================= SCREEN SYSTEM ================= */
+  .screen{
+    position:absolute; inset:0;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    padding:32px 24px;
+    opacity:0;
+    transform:translateY(14px);
+    pointer-events:none;
+    transition:opacity .45s ease, transform .45s ease;
+  }
+  .screen.active{
+    opacity:1;
+    transform:translateY(0);
+    pointer-events:auto;
+  }
+
+  /* ---------- shared bits ---------- */
+  .eyebrow{
+    font-size:11px;
+    letter-spacing:.3em;
+    text-transform:uppercase;
+    color:var(--ink-dim);
+    margin-bottom:10px;
+  }
+  .eyebrow b{ color:var(--signal); font-weight:700; }
+
+  .brand{
+    font-family:var(--disp);
+    font-weight:800;
+    font-size:15vw;
+    line-height:.82;
+    letter-spacing:-.01em;
+    color:var(--ink);
+    text-align:center;
+  }
+  .brand span{ color:var(--signal); }
+
+  .sub{
+    margin-top:14px;
+    color:var(--ink-dim);
+    font-size:13px;
+    text-align:center;
+    max-width:320px;
+    line-height:1.6;
+  }
+
+  /* role picker */
+  .roles{
+    margin-top:44px;
+    display:flex;
+    gap:14px;
+    width:100%;
+    max-width:420px;
+  }
+  .role-card{
+    flex:1;
+    border:1px solid var(--line);
+    background:var(--panel);
+    border-radius:2px;
+    padding:22px 14px;
+    text-align:center;
+    cursor:pointer;
+    transition:border-color .2s, transform .15s, background .2s;
+    position:relative;
+    overflow:hidden;
+  }
+  .role-card:active{ transform:scale(.97); }
+  .role-card:hover{ border-color:var(--signal-dim); }
+  .role-card .glyph{
+    font-size:30px;
+    margin-bottom:10px;
+    display:block;
+  }
+  .role-card .label{
+    font-family:var(--disp);
+    font-size:20px;
+    font-weight:700;
+    letter-spacing:.02em;
+    color:var(--ink);
+  }
+  .role-card .desc{
+    margin-top:6px;
+    font-size:10.5px;
+    color:var(--ink-dim);
+    letter-spacing:.04em;
+    line-height:1.5;
+  }
+  .role-card.tracker:hover, .role-card.tracker.chosen{ border-color:var(--signal); box-shadow:0 0 24px -8px rgba(57,255,136,.4) inset; }
+  .role-card.victim:hover, .role-card.victim.chosen{ border-color:var(--danger); box-shadow:0 0 24px -8px rgba(255,59,92,.4) inset; }
+  .role-card.tracker .glyph{ color:var(--signal); }
+  .role-card.victim .glyph{ color:var(--danger); }
+
+  /* room form */
+  .panel{
+    width:100%;
+    max-width:380px;
+    border:1px solid var(--line);
+    background:var(--panel);
+    border-radius:2px;
+    padding:26px;
+    margin-top:36px;
+  }
+  .field-label{
+    font-size:10.5px;
+    letter-spacing:.2em;
+    text-transform:uppercase;
+    color:var(--ink-dim);
+    margin-bottom:8px;
+    display:block;
+  }
+  .code-input{
+    width:100%;
+    background:var(--void);
+    border:1px solid var(--line);
+    color:var(--signal);
+    font-family:var(--disp);
+    font-size:30px;
+    letter-spacing:.25em;
+    text-align:center;
+    padding:14px 8px;
+    border-radius:2px;
+    text-transform:uppercase;
+    outline:none;
+  }
+  .code-input:focus{ border-color:var(--signal-dim); }
+
+  .btn{
+    width:100%;
+    margin-top:16px;
+    padding:15px;
+    border:1px solid var(--signal-dim);
+    background:transparent;
+    color:var(--signal);
+    font-family:var(--mono);
+    font-weight:700;
+    font-size:13px;
+    letter-spacing:.15em;
+    text-transform:uppercase;
+    border-radius:2px;
+    cursor:pointer;
+    transition:background .2s, color .2s;
+  }
+  .btn:hover{ background:var(--signal); color:#03150a; }
+  .btn:disabled{ opacity:.35; cursor:not-allowed; }
+  .btn.ghost{
+    border-color:var(--line);
+    color:var(--ink-dim);
+    margin-top:10px;
+  }
+  .btn.ghost:hover{ background:var(--panel); color:var(--ink); }
+  .btn.danger-outline{ border-color:var(--danger-dim); color:var(--danger); }
+  .btn.danger-outline:hover{ background:var(--danger); color:#1a0407; }
+
+  .divider-or{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    margin:22px 0 4px;
+    color:var(--ink-dim);
+    font-size:10px;
+    letter-spacing:.2em;
+  }
+  .divider-or::before, .divider-or::after{
+    content:'';
+    flex:1;
+    height:1px;
+    background:var(--line);
+  }
+
+  .status-line{
+    margin-top:14px;
+    font-size:11px;
+    color:var(--ink-dim);
+    text-align:center;
+    min-height:16px;
+    letter-spacing:.03em;
+  }
+  .status-line.err{ color:var(--danger); }
+  .status-line.ok{ color:var(--signal); }
+
+  .back-btn{
+    position:absolute;
+    top:20px; left:20px;
+    color:var(--ink-dim);
+    font-size:11px;
+    letter-spacing:.1em;
+    cursor:pointer;
+    z-index:5;
+    display:flex;
+    align-items:center;
+    gap:6px;
+  }
+  .back-btn:hover{ color:var(--ink); }
+
+  /* generated code display */
+  .code-display{
+    font-family:var(--disp);
+    font-size:54px;
+    letter-spacing:.2em;
+    color:var(--signal);
+    text-align:center;
+    margin:18px 0;
+    text-shadow:0 0 30px rgba(57,255,136,.35);
+  }
+
+  /* ================= TRACKING SCREEN ================= */
+  #screen-track{
+    justify-content:space-between;
+    padding:0;
+  }
+  .track-top{
+    width:100%;
+    padding:18px 20px 0;
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+  }
+  .conn-pill{
+    display:flex;
+    align-items:center;
+    gap:7px;
+    font-size:10px;
+    letter-spacing:.15em;
+    text-transform:uppercase;
+    color:var(--ink-dim);
+  }
+  .dot{
+    width:7px; height:7px;
+    border-radius:50%;
+    background:var(--ink-dim);
+  }
+  .dot.live{ background:var(--signal); box-shadow:0 0 8px var(--signal); animation:pulse-dot 1.4s infinite; }
+  @keyframes pulse-dot{ 0%,100%{opacity:1} 50%{opacity:.35} }
+
+  .eye-toggle{
+    width:38px; height:38px;
+    border:1px solid var(--line);
+    border-radius:2px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    color:var(--ink-dim);
+    transition:border-color .2s, color .2s;
+    background:var(--panel);
+  }
+  .eye-toggle:hover{ border-color:var(--ink-dim); color:var(--ink); }
+  .eye-toggle.on{ color:var(--signal); border-color:var(--signal-dim); }
+  .eye-toggle svg{ width:18px; height:18px; }
+
+  .track-center{
+    flex:1;
+    width:100%;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    padding:0 16px;
+  }
+
+  .role-tag{
+    font-size:11px;
+    letter-spacing:.3em;
+    text-transform:uppercase;
+    color:var(--ink-dim);
+    margin-bottom:6px;
+  }
+  .role-tag.is-tracker{ color:var(--signal); }
+  .role-tag.is-victim{ color:var(--danger); }
+
+  .distance-value{
+    font-family:var(--disp);
+    font-weight:800;
+    font-size:min(22vw, 150px);
+    line-height:.85;
+    color:var(--ink);
+    letter-spacing:-.02em;
+    font-variant-numeric: tabular-nums;
+    transition:color .3s;
+  }
+  .distance-unit{
+    font-family:var(--disp);
+    font-size:min(6vw, 34px);
+    color:var(--ink-dim);
+    margin-left:6px;
+    font-weight:700;
+  }
+
+  .distance-value.hot{ color:var(--danger); text-shadow:0 0 40px rgba(255,59,92,.35); }
+  .distance-value.warm{ color:var(--amber); }
+  .distance-value.cool{ color:var(--signal); text-shadow:0 0 40px rgba(57,255,136,.25); }
+
+  .delta-readout{
+    margin-top:18px;
+    font-size:12px;
+    letter-spacing:.1em;
+    color:var(--ink-dim);
+    display:flex;
+    align-items:center;
+    gap:8px;
+    min-height:18px;
+  }
+  .delta-readout .arrow{ font-size:14px; }
+  .delta-readout.approaching{ color:var(--danger); }
+  .delta-readout.receding{ color:var(--signal); }
+
+  .blind-msg{
+    display:none;
+    flex-direction:column;
+    align-items:center;
+    gap:14px;
+  }
+  .blind-msg .glyph{ font-size:44px; color:var(--ink-dim); }
+  .blind-msg .txt{ color:var(--ink-dim); font-size:13px; letter-spacing:.05em; max-width:260px; line-height:1.6; }
+
+  .track-bottom{
+    width:100%;
+    padding:20px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    font-size:10.5px;
+    color:var(--ink-dim);
+    letter-spacing:.1em;
+    border-top:1px solid var(--line);
+  }
+  .room-code-tag{
+    font-family:var(--mono);
+    color:var(--ink-dim);
+  }
+  .room-code-tag b{ color:var(--ink); letter-spacing:.15em; }
+  .leave-link{ cursor:pointer; color:var(--ink-dim); text-transform:uppercase; }
+  .leave-link:hover{ color:var(--danger); }
+
+  .accuracy-note{
+    font-size:9.5px;
+    color:var(--ink-dim);
+    opacity:.6;
+    margin-top:26px;
+    letter-spacing:.05em;
+  }
+
+  ::selection{ background:var(--signal-dim); color:#fff; }
+
+  @media (max-width:420px){
+    .roles{ gap:10px; }
+    .role-card{ padding:18px 10px; }
+    .panel{ padding:20px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="grid-bg"></div>
+<div class="scanline"></div>
+<div class="noise-fade"></div>
+
+<div id="app">
+
+  <!-- ============ SCREEN 0: ROLE SELECT ============ -->
+  <section class="screen active" id="screen-role">
+    <div class="eyebrow">SISTEMA DE <b>PROXIMIDADE</b> · TEMPO REAL</div>
+    <h1 class="brand">PROXIMI<span>DADE</span></h1>
+    <p class="sub">Escolha seu papel para começar. Um lado observa a distância. O outro é observado — e decide se quer ver também.</p>
+
+    <div class="roles">
+      <div class="role-card tracker" data-role="tracker">
+        <span class="glyph">◎</span>
+        <div class="label">RASTREADOR</div>
+        <div class="desc">ACOMPANHA A<br>DISTÂNCIA</div>
+      </div>
+      <div class="role-card victim" data-role="victim">
+        <span class="glyph">◈</span>
+        <div class="label">VÍTIMA</div>
+        <div class="desc">É ACOMPANHADA<br>E DECIDE SE VÊ</div>
+      </div>
+    </div>
+
+    <p class="accuracy-note">Requer permissão de localização em ambos os aparelhos.</p>
+  </section>
+
+  <!-- ============ SCREEN 1: ROOM SETUP (create or join) ============ -->
+  <section class="screen" id="screen-room">
+    <div class="back-btn" id="back-to-role">← VOLTAR</div>
+
+    <div class="eyebrow" id="room-role-label">RASTREADOR</div>
+    <h1 class="brand" style="font-size:9vw;">SALA</h1>
+
+    <div class="panel">
+      <label class="field-label">Criar nova sala</label>
+      <button class="btn" id="btn-create-room">GERAR CÓDIGO</button>
+
+      <div class="divider-or">OU</div>
+
+      <label class="field-label" style="margin-top:14px;">Entrar com código</label>
+      <input type="text" maxlength="5" class="code-input" id="join-code-input" placeholder="XXXXX" autocomplete="off" autocapitalize="characters">
+      <button class="btn" id="btn-join-room" style="margin-top:14px;">ENTRAR NA SALA</button>
+
+      <div class="status-line" id="room-status"></div>
+    </div>
+  </section>
+
+  <!-- ============ SCREEN 2: CODE GENERATED, WAITING ============ -->
+  <section class="screen" id="screen-waiting">
+    <div class="back-btn" id="back-to-room">← VOLTAR</div>
+    <div class="eyebrow">CÓDIGO DA SALA</div>
+    <div class="code-display" id="generated-code">------</div>
+    <p class="sub">Envie esse código para a outra pessoa. Assim que ela entrar, o rastreamento começa automaticamente.</p>
+    <div class="status-line" id="waiting-status">
+      <span class="dot" style="display:inline-block; margin-right:6px;"></span>Aguardando conexão...
+    </div>
+  </section>
+
+  <!-- ============ SCREEN 3: TRACKING ============ -->
+  <section class="screen" id="screen-track">
+    <div class="track-top">
+      <div class="conn-pill">
+        <span class="dot live" id="conn-dot"></span>
+        <span id="conn-text">SINCRONIZADO</span>
+      </div>
+      <div class="eye-toggle" id="eye-toggle" title="Alternar visibilidade">
+        <svg id="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+          <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+      </div>
+    </div>
+
+    <div class="track-center">
+      <div class="role-tag" id="track-role-tag">RASTREADOR</div>
+
+      <div id="distance-display">
+        <span class="distance-value cool" id="distance-value">----</span><span class="distance-unit" id="distance-unit">m</span>
+        <div class="delta-readout" id="delta-readout"></div>
+      </div>
+
+      <div class="blind-msg" id="blind-msg">
+        <span class="glyph">◈</span>
+        <div class="txt">Você está sendo rastreada.<br>Toque no olho para ver a distância também.</div>
+      </div>
+    </div>
+
+    <div class="track-bottom">
+      <div class="room-code-tag">SALA <b id="active-room-code">-----</b></div>
+      <div class="leave-link" id="leave-room">SAIR</div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+/* =========================================================
+   FIREBASE CONFIG
+   Cole aqui as credenciais do SEU projeto Firebase
+   (Configurações do projeto > Geral > Seus apps > SDK config)
+   ========================================================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyAvFM5SlJN6WRMNMgy6XLBmHsZrT2RnXFY",
+  authDomain: "rastreador-b0634.firebaseapp.com",
+  databaseURL: "https://rastreador-b0634-default-rtdb.firebaseio.com",
+  projectId: "rastreador-b0634",
+  storageBucket: "rastreador-b0634.firebasestorage.app",
+  messagingSenderId: "554417579352",
+  appId: "1:554417579352:web:45f9cc01c34a76bcabf12d"
+};
+
+if(typeof firebase === 'undefined'){
+  document.body.innerHTML = `
+    <div style="height:100vh;display:flex;align-items:center;justify-content:center;
+                background:#05070a;color:#ff3b5c;font-family:monospace;text-align:center;
+                padding:30px;line-height:1.8;">
+      <div>
+        ⚠ FIREBASE NÃO CARREGOU<br><br>
+        <span style="color:#cfd8de;font-size:13px;">
+          Isso acontece quando o arquivo é aberto direto do computador (file://)<br>
+          em vez de um servidor real.<br><br>
+          Suba este arquivo no GitHub Pages (ou qualquer hospedagem https://)<br>
+          e abra pelo link publicado — aí o Firebase carrega normalmente.
+        </span>
+      </div>
+    </div>`;
+  throw new Error('Firebase SDK não carregado — provavelmente aberto via file:// em vez de http(s)://');
+}
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+/* =========================================================
+   ESTADO GLOBAL
+   ========================================================= */
+let myRole = null;         // 'tracker' | 'victim'
+let roomCode = null;
+let myId = null;           // id único desta sessão/dispositivo
+let watchId = null;
+let roomRef = null;
+
+let displayedDistance = null;   // valor atualmente mostrado (interpolado)
+let targetDistance = null;      // valor real mais recente vindo do GPS
+let animFrame = null;
+let lastTickTime = null;
+
+/* =========================================================
+   HELPERS DE TELA
+   ========================================================= */
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function genRoomCode(){
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for(let i=0;i<5;i++) code += chars[Math.floor(Math.random()*chars.length)];
+  return code;
+}
+
+function genId(){
+  return 'id_' + Math.random().toString(36).slice(2, 10);
+}
+
+/* =========================================================
+   SCREEN 0 -> 1: escolher papel
+   ========================================================= */
+document.querySelectorAll('.role-card').forEach(card => {
+  card.addEventListener('click', () => {
+    myRole = card.dataset.role;
+    document.getElementById('room-role-label').textContent = myRole === 'tracker' ? 'RASTREADOR' : 'VÍTIMA';
+    document.getElementById('room-status').textContent = '';
+    showScreen('screen-room');
+  });
+});
+
+document.getElementById('back-to-role').addEventListener('click', () => {
+  myRole = null;
+  showScreen('screen-role');
+});
+
+document.getElementById('back-to-room').addEventListener('click', () => {
+  if(roomRef) roomRef.child('members/' + myId).remove();
+  showScreen('screen-room');
+});
+
+/* =========================================================
+   CRIAR SALA
+   ========================================================= */
+document.getElementById('btn-create-room').addEventListener('click', () => {
+  roomCode = genRoomCode();
+  myId = genId();
+  roomRef = db.ref('rooms/' + roomCode);
+
+  roomRef.set({
+    createdAt: Date.now(),
+    visibleToVictim: false,
+    members: {
+      [myId]: { role: myRole, joinedAt: Date.now() }
+    }
+  }).then(() => {
+    document.getElementById('generated-code').textContent = roomCode;
+    showScreen('screen-waiting');
+    listenForSecondMember();
+  }).catch(err => {
+    setStatus('room-status', 'Erro ao criar sala: ' + err.message, 'err');
+  });
+});
+
+/* =========================================================
+   ENTRAR EM SALA
+   ========================================================= */
+document.getElementById('btn-join-room').addEventListener('click', () => {
+  const input = document.getElementById('join-code-input');
+  const code = input.value.trim().toUpperCase();
+
+  if(code.length < 4){
+    setStatus('room-status', 'Digite um código válido.', 'err');
+    return;
+  }
+
+  const ref = db.ref('rooms/' + code);
+  ref.once('value').then(snapshot => {
+    if(!snapshot.exists()){
+      setStatus('room-status', 'Sala não encontrada. Confira o código.', 'err');
+      return;
+    }
+
+    const data = snapshot.val();
+    const members = data.members || {};
+    const existingRoles = Object.values(members).map(m => m.role);
+
+    if(existingRoles.includes(myRole)){
+      setStatus('room-status', 'Já existe um ' + (myRole === 'tracker' ? 'Rastreador' : 'uma Vítima') + ' nessa sala.', 'err');
+      return;
+    }
+
+    roomCode = code;
+    myId = genId();
+    roomRef = ref;
+
+    roomRef.child('members/' + myId).set({ role: myRole, joinedAt: Date.now() }).then(() => {
+      setStatus('room-status', 'Conectado! Iniciando...', 'ok');
+      enterTrackingRoom();
+    });
+  }).catch(err => {
+    setStatus('room-status', 'Erro: ' + err.message, 'err');
+  });
+});
+
+function setStatus(elId, msg, cls){
+  const el = document.getElementById(elId);
+  el.textContent = msg;
+  el.className = 'status-line' + (cls ? ' ' + cls : '');
+}
+
+/* =========================================================
+   AGUARDANDO: quem criou a sala espera o segundo membro
+   ========================================================= */
+function listenForSecondMember(){
+  roomRef.child('members').on('value', snapshot => {
+    const members = snapshot.val() || {};
+    if(Object.keys(members).length >= 2){
+      roomRef.child('members').off('value');
+      enterTrackingRoom();
+    }
+  });
+}
+
+/* =========================================================
+   ENTRAR NA TELA DE RASTREAMENTO
+   ========================================================= */
+function enterTrackingRoom(){
+  document.getElementById('active-room-code').textContent = roomCode;
+
+  const roleTag = document.getElementById('track-role-tag');
+  roleTag.textContent = myRole === 'tracker' ? 'RASTREADOR' : 'VÍTIMA';
+  roleTag.className = 'role-tag ' + (myRole === 'tracker' ? 'is-tracker' : 'is-victim');
+
+  // olho só faz sentido pra vítima controlar; rastreador sempre vê
+  const eyeToggle = document.getElementById('eye-toggle');
+  if(myRole === 'tracker'){
+    eyeToggle.style.display = 'none';
+  } else {
+    eyeToggle.style.display = 'flex';
+  }
+
+  showScreen('screen-track');
+  startGeolocation();
+  listenToRoomData();
+
+  window.addEventListener('beforeunload', cleanupOnExit);
+}
+
+/* =========================================================
+   VISIBILIDADE (o "olho")
+   ========================================================= */
+let eyeOn = false;
+
+document.getElementById('eye-toggle').addEventListener('click', () => {
+  eyeOn = !eyeOn;
+  roomRef.child('visibleToVictim').set(eyeOn);
+  updateEyeUI();
+});
+
+function updateEyeUI(){
+  const toggle = document.getElementById('eye-toggle');
+  const icon = document.getElementById('eye-icon');
+  toggle.classList.toggle('on', eyeOn);
+
+  if(eyeOn){
+    icon.innerHTML = '<path d="M17 3L1 21M9.9 9.9a3 3 0 0 0 4.2 4.2M6.6 6.6C4 8.3 2 12 2 12s4 8 11 8c1.9 0 3.6-.5 5-1.3M14.1 5.2A11 11 0 0 1 22 12s-1 2-2.9 4"></path>';
+  } else {
+    icon.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle>';
+  }
+}
+
+/* =========================================================
+   ESCUTAR DADOS DA SALA (posições + visibilidade)
+   ========================================================= */
+function listenToRoomData(){
+  roomRef.on('value', snapshot => {
+    const data = snapshot.val();
+    if(!data) return;
+
+    const members = data.members || {};
+    const entries = Object.entries(members);
+
+    let trackerLoc = null, victimLoc = null;
+    entries.forEach(([id, m]) => {
+      if(m.role === 'tracker' && m.loc) trackerLoc = m.loc;
+      if(m.role === 'victim' && m.loc) victimLoc = m.loc;
+    });
+
+    // atualizar conexão
+    const connected = entries.length >= 2;
+    document.getElementById('conn-dot').classList.toggle('live', connected);
+    document.getElementById('conn-text').textContent = connected ? 'SINCRONIZADO' : 'AGUARDANDO PAR';
+
+    if(trackerLoc && victimLoc){
+      const meters = haversineMeters(trackerLoc.lat, trackerLoc.lng, victimLoc.lat, victimLoc.lng);
+      setTargetDistance(meters);
+    }
+
+    // controlar visibilidade pro lado da vítima
+    if(myRole === 'victim'){
+      const canSee = !!data.visibleToVictim;
+      eyeOn = canSee;
+      updateEyeUI();
+      toggleBlindMode(!canSee);
+    }
+  });
+}
+
+function toggleBlindMode(blind){
+  document.getElementById('distance-display').style.display = blind ? 'none' : 'block';
+  document.getElementById('blind-msg').style.display = blind ? 'flex' : 'none';
+}
+
+/* =========================================================
+   GEOLOCALIZAÇÃO
+   ========================================================= */
+function startGeolocation(){
+  if(!navigator.geolocation){
+    setStatus('waiting-status', 'Geolocalização não suportada neste navegador.', 'err');
+    return;
+  }
+
+  watchId = navigator.geolocation.watchPosition(
+    pos => {
+      const { latitude, longitude } = pos.coords;
+      roomRef.child('members/' + myId + '/loc').set({
+        lat: latitude,
+        lng: longitude,
+        t: Date.now()
+      });
+    },
+    err => {
+      console.warn('Erro de geolocalização:', err.message);
+    },
+    {
+      enableHighAccuracy: true,
+      maximumAge: 1000,
+      timeout: 10000
+    }
+  );
+}
+
+/* =========================================================
+   CÁLCULO DE DISTÂNCIA (fórmula de Haversine)
+   ========================================================= */
+function haversineMeters(lat1, lon1, lat2, lon2){
+  const R = 6371000; // raio da Terra em metros
+  const toRad = deg => deg * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.sin(dLon/2)**2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
+/* =========================================================
+   ANIMAÇÃO SUAVE DO CONTADOR (interpolação em tempo real)
+   Sempre que chega uma nova leitura de GPS, não trocamos o
+   número de uma vez: fazemos ele "andar" continuamente do
+   valor atual até o novo valor, no ritmo do tempo real,
+   dando a sensação de acompanhar o movimento da pessoa.
+   ========================================================= */
+function setTargetDistance(meters){
+  targetDistance = meters;
+
+  if(displayedDistance === null){
+    displayedDistance = meters;
+    renderDistance(meters, 0);
+    return;
+  }
+
+  if(!animFrame){
+    lastTickTime = performance.now();
+    animFrame = requestAnimationFrame(animateDistance);
+  }
+}
+
+function animateDistance(now){
+  const dt = Math.min((now - lastTickTime) / 1000, 0.25); // segundos, com teto de segurança
+  lastTickTime = now;
+
+  const diff = targetDistance - displayedDistance;
+
+  if(Math.abs(diff) < 0.05){
+    displayedDistance = targetDistance;
+    renderDistance(displayedDistance, 0);
+    animFrame = null;
+    return;
+  }
+
+  // velocidade de aproximação do valor real: mais rápido quanto maior a diferença,
+  // simulando "acompanhar o ritmo" de quem está andando
+  const speed = Math.max(Math.abs(diff) * 2.2, 4); // metros por segundo mínimos de transição visual
+  const step = Math.sign(diff) * Math.min(Math.abs(diff), speed * dt);
+
+  displayedDistance += step;
+  renderDistance(displayedDistance, diff);
+
+  animFrame = requestAnimationFrame(animateDistance);
+}
+
+function renderDistance(meters, diff){
+  const valueEl = document.getElementById('distance-value');
+  const unitEl = document.getElementById('distance-unit');
+  const deltaEl = document.getElementById('delta-readout');
+
+  let text, unit;
+  if(meters >= 1000){
+    text = (meters/1000).toFixed(2);
+    unit = 'km';
+  } else {
+    text = Math.round(meters).toString();
+    unit = 'm';
+  }
+  valueEl.textContent = text;
+  unitEl.textContent = unit;
+
+  // cor por proximidade
+  valueEl.classList.remove('hot','warm','cool');
+  if(meters < 50) valueEl.classList.add('hot');
+  else if(meters < 300) valueEl.classList.add('warm');
+  else valueEl.classList.add('cool');
+
+  // indicador de aproximando/afastando
+  deltaEl.classList.remove('approaching','receding');
+  if(Math.abs(diff) < 0.05){
+    deltaEl.textContent = '';
+  } else if(diff < 0){
+    deltaEl.innerHTML = '<span class="arrow">↓</span> aproximando';
+    deltaEl.classList.add('approaching');
+  } else {
+    deltaEl.innerHTML = '<span class="arrow">↑</span> afastando';
+    deltaEl.classList.add('receding');
+  }
+}
+
+/* =========================================================
+   SAIR DA SALA
+   ========================================================= */
+document.getElementById('leave-room').addEventListener('click', () => {
+  cleanupOnExit();
+  location.reload();
+});
+
+function cleanupOnExit(){
+  if(watchId !== null) navigator.geolocation.clearWatch(watchId);
+  if(roomRef && myId) roomRef.child('members/' + myId).remove();
+  if(roomRef) roomRef.off();
+}
+
+/* =========================================================
+   ENTER no input de código = clicar em entrar
+   ========================================================= */
+document.getElementById('join-code-input').addEventListener('keydown', e => {
+  if(e.key === 'Enter') document.getElementById('btn-join-room').click();
+});
+document.getElementById('join-code-input').addEventListener('input', e => {
+  e.target.value = e.target.value.toUpperCase();
+});
+</script>
+
+</body>
+</html>
